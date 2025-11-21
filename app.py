@@ -8,7 +8,7 @@ scaler = joblib.load("scaler.pkl")
 le_gender = joblib.load("label_encoder_gender.pkl")
 le_diabetic = joblib.load("label_encoder_diabetic.pkl")
 le_smoker = joblib.load("label_encoder_smoker.pkl")
-le_region = joblib.load("label_encoder_region.pkl")  # This was loaded, but not used in the inputs (add to inputs if required)
+# le_region = joblib.load("label_encoder_region.pkl")  # This was loaded, but not used in the inputs (add to inputs if required) - Removed as file does not exist and region is not used
 
 model = joblib.load("model.pkl")
 
