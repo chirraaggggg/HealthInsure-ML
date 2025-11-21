@@ -45,7 +45,7 @@ if submitted:
     # Transform categorical columns with loaded encoders
     input_data["gender"] = le_gender.transform(input_data["gender"])
     input_data["diabetic"] = le_diabetic.transform(input_data["diabetic"])
-    # input_data["smoker"] = le_smoker.transform(input_data["smoker"])
+    input_data["smoker"] = le_smoker.transform(input_data["smoker"])
     # # If your model expects 'region', you should add region input and transform with le_region too
 
     # num_cols = ["age", "bmi", "bloodpressure", "children"]
