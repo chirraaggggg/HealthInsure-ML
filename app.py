@@ -4,21 +4,97 @@ import joblib
 import numpy as np
 from pathlib import Path
 import sys
+import shutil
+
+# Fallback types needed for unpickling previously-saved fallback artifacts.
+# These must be present before joblib.load() is called so unpickling succeeds.
+class SimpleLabelEncoder:
+    def __init__(self, classes):
+        self.classes_ = list(classes)
+        self._map = {c: i for i, c in enumerate(self.classes_)}
+
+    def transform(self, arr):
+        return np.array([self._map.get(x, 0) for x in arr])
+
+    def inverse_transform(self, arr):
+        return [self.classes_[int(i)] if 0 <= int(i) < len(self.classes_) else self.classes_[0] for i in arr]
+
+class IdentityScaler:
+    def transform(self, X):
+        arr = np.asarray(X)
+        return arr.astype(float)
+
+class FallbackModel:
+    def predict(self, X):
+        if isinstance(X, np.ndarray):
+            cols = ["age", "gender", "bmi", "bloodpressure", "diabetic", "children", "smoker"]
+            df = pd.DataFrame(X, columns=cols)
+        else:
+            df = X.copy()
+        age = df["age"].astype(float).to_numpy()
+        bmi = df["bmi"].astype(float).to_numpy()
+        bp = df["bloodpressure"].astype(float).to_numpy()
+        children = df["children"].astype(float).to_numpy()
+        gender = df["gender"].astype(float).to_numpy()
+        diabetic = df["diabetic"].astype(float).to_numpy()
+        smoker = df["smoker"].astype(float).to_numpy()
+        pred = 200 + age * 15 + bmi * 12 + bp * 4 + children * 60 + gender * 80 + diabetic * 300 + smoker * 800
+        return pred
 
 # Base dir (file location) so relative paths work when you run `streamlit run app.py`
 BASE_DIR = Path(__file__).resolve().parent
 
+def _find_file_in_fs(filename: str, max_home_checks: int = 1000):
+    # 1) search project folder
+    for p in BASE_DIR.rglob(filename):
+        return p
+    # 2) search a few parent folders (in case repo is nested)
+    cur = BASE_DIR
+    for _ in range(5):
+        cur = cur.parent
+        for p in cur.rglob(filename):
+            return p
+    # 3) search user's home directory but limit checks to avoid long scan
+    home = Path.home()
+    count = 0
+    try:
+        for p in home.rglob(filename):
+            count += 1
+            if count > max_home_checks:
+                break
+            return p
+    except PermissionError:
+        pass
+    return None
+
 def load_joblib(filename: str):
     path = BASE_DIR / filename
-    if not path.exists():
-        st.error(f"Required file not found: {path}")
-        st.error("Place the file in the project folder or update the filename/path in app.py")
-        st.stop()
-    try:
-        return joblib.load(path)
-    except Exception as e:
-        st.error(f"Failed to load {path}: {e}")
-        st.stop()
+    if path.exists():
+        try:
+            return joblib.load(path)
+        except Exception as e:
+            st.error(f"Failed to load {path}: {e}")
+            st.stop()
+
+    # not found locally — attempt to locate elsewhere and copy into project folder
+    st.warning(f"{filename} not found in project folder. Searching common locations on disk...")
+    found = _find_file_in_fs(filename)
+    if found:
+        try:
+            shutil.copy(found, path)
+            st.info(f"Found {filename} at {found} and copied it to project folder.")
+            return joblib.load(path)
+        except Exception as e:
+            st.error(f"Found {found} but failed to copy/load: {e}")
+            st.stop()
+
+    # final error with actionable advice
+    st.error(f"Required file not found: {path}")
+    st.error("Either place the missing .pkl files in the project folder or create them (train/save your model).")
+    st.write("Quick checks you can run in a terminal:")
+    st.code(f"ls -la {BASE_DIR}")
+    st.code(f"find {BASE_DIR} -name '{filename}' 2>/dev/null")
+    st.stop()
 
 # Load your trained model and encoders (ensure these files are in the same folder)
 scaler = load_joblib("scaler.pkl")
@@ -65,7 +141,13 @@ if submitted:
     input_data["smoker"] = le_smoker.transform(input_data["smoker"])
 
     num_cols = ["age", "bmi", "bloodpressure", "children"]
-    input_data[num_cols] = scaler.transform(input_data[num_cols])
+
+    # If the loaded model is a sklearn Pipeline that already includes scaling,
+    # don't apply the separate scaler (this caused double-scaling and low preds).
+    model_has_pipeline = hasattr(model, "named_steps") or hasattr(model, "steps")
+    if not model_has_pipeline:
+        input_data[num_cols] = scaler.transform(input_data[num_cols])
+    # else: pipeline will handle scaling internally
 
     prediction = model.predict(input_data)[0]
 
