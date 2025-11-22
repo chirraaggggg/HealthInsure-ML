@@ -105,53 +105,135 @@ le_smoker = load_joblib("label_encoder_smoker.pkl")
 
 model = load_joblib("model.pkl")
 
+# set page
 st.set_page_config(page_title="Medical Insurance Cost Prediction", page_icon=":medical:", layout="wide")
 
-st.title("Medical Insurance Cost Prediction")
-st.write("Enter the following details to estimate the insurance cost")
+# --- UPDATED HEADER + global styles (heading white, improved hero) ---
+st.markdown(
+    """
+    <style>
+      /* page background and container tweaks */
+      .stApp { background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%); }
+      .hero {
+        background: linear-gradient(90deg,#0f172a,#0b3d91);
+        color: white;
+        padding: 28px;
+        border-radius: 14px;
+        box-shadow: 0 8px 30px rgba(2,6,23,0.12);
+        margin-bottom: 18px;
+      }
+      .hero h1 { margin: 0; font-size: 34px; color: #ffffff; }
+      .hero p { margin: 6px 0 0; color: rgba(255,255,255,0.85); }
+      .card { background: white; padding: 16px; border-radius: 12px; box-shadow: 0 6px 20px rgba(11,36,84,0.06); }
+      .small-muted { color: #6b7280; font-size:12px; }
+    </style>
 
-with st.form("insurance_cost_form"):
-    col1, col2 = st.columns(2)
-    with col1:
-        age = st.number_input("Age", min_value=0, max_value=100, value=30)
-        bmi = st.number_input("BMI", min_value=10.0, max_value=60.0, value=25.0)
-        children = st.number_input("Number of Children", min_value=0, max_value=10, value=0)
+    <div class="hero">
+      <div style="display:flex;align-items:center;gap:14px">
+        <div style="font-size:44px">🩺</div>
+        <div>
+          <h1>Medical Insurance Cost Predictor</h1>
+          <p>Fast, friendly estimates · Replace with your trained model for production-grade results</p>
+        </div>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
-    with col2:
-        bloodpressure = st.number_input("Blood Pressure", min_value=60, max_value=200, value=120)
-        gender = st.selectbox("Gender", options=le_gender.classes_)
-        diabetic = st.selectbox("Diabetic", options=le_diabetic.classes_)
-        smoker = st.selectbox("Smoker", options=le_smoker.classes_)
+# --- Sidebar Inputs (clean grouped controls) ---
+with st.sidebar:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.header("Patient Information")
+    age = st.slider("Age", 18, 90, 35)
+    bmi = st.slider("BMI", 15.0, 45.0, 27.5, step=0.1)
+    bloodpressure = st.slider("Blood Pressure", 80, 200, 120)
+    children = st.number_input("Number of Children", min_value=0, max_value=10, value=0)
+    st.markdown("---")
+    st.subheader("Health Status")
+    gender = st.selectbox("Gender", options=le_gender.classes_)
+    diabetic = st.selectbox("Diabetic", options=le_diabetic.classes_)
+    smoker = st.selectbox("Smoker", options=le_smoker.classes_)
+    st.markdown("---")
+    predict_btn = st.button("Estimate Cost", key="predict_btn", help="Click to compute an insurance cost estimate")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    submitted = st.form_submit_button("Predict Payment")
+# --- Main content: card + details (removed the 'See input summary' expander as requested) ---
+result_container = st.container()
 
-if submitted:
-    input_data = pd.DataFrame({
-        "age": [age],
-        "gender": [gender],
-        "bmi": [bmi],
-        "bloodpressure": [bloodpressure],
-        "diabetic": [diabetic],
-        "children": [children],
-        "smoker": [smoker]
-    })
+st.markdown("<div class='card'>", unsafe_allow_html=True)
+st.markdown("<div style='display:flex;justify-content:space-between;align-items:center'>"
+            f"<div><strong class='small-muted'>Model:</strong> {type(model).__name__}</div>"
+            f"<div class='small-muted'>Tip: Use realistic inputs for best estimates</div>"
+            "</div><hr>", unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
 
-    # Transform categorical columns with loaded encoders
-    input_data["gender"] = le_gender.transform(input_data["gender"])
-    input_data["diabetic"] = le_diabetic.transform(input_data["diabetic"])
-    input_data["smoker"] = le_smoker.transform(input_data["smoker"])
+st.markdown("<br>", unsafe_allow_html=True)
 
-    num_cols = ["age", "bmi", "bloodpressure", "children"]
+if predict_btn:
+    with st.spinner("Calculating estimate..."):
+        input_data = pd.DataFrame({
+            "age": [age],
+            "gender": [gender],
+            "bmi": [bmi],
+            "bloodpressure": [bloodpressure],
+            "diabetic": [diabetic],
+            "children": [children],
+            "smoker": [smoker]
+        })
 
-    # If the loaded model is a sklearn Pipeline that already includes scaling,
-    # don't apply the separate scaler.
-    model_has_pipeline = hasattr(model, "named_steps") or hasattr(model, "steps")
-    if not model_has_pipeline:
-        input_data[num_cols] = scaler.transform(input_data[num_cols])
+        # encode categoricals
+        input_data["gender"] = le_gender.transform(input_data["gender"])
+        input_data["diabetic"] = le_diabetic.transform(input_data["diabetic"])
+        input_data["smoker"] = le_smoker.transform(input_data["smoker"])
 
-    prediction = float(model.predict(input_data)[0])
+        num_cols = ["age", "bmi", "bloodpressure", "children"]
+        model_has_pipeline = hasattr(model, "named_steps") or hasattr(model, "steps")
+        if not model_has_pipeline:
+            input_data[num_cols] = scaler.transform(input_data[num_cols])
 
-    st.success(f"Estimated Insurance Payment Amount: ${prediction:,.2f}")
+        pred = float(model.predict(input_data)[0])
+        pred_rounded = round(pred, 2)
 
-# helpful footer
-st.markdown("<small style='color:gray'>Tip: use realistic inputs for best estimates. This app shows estimates only.</small>", unsafe_allow_html=True)
+    # Attractive result card
+    with result_container:
+        left, right = st.columns([2, 1])
+        with left:
+            st.markdown(
+                f"""
+                <div style="background:linear-gradient(90deg,#7dd3fc,#60a5fa);padding:20px;border-radius:14px;color:#022c43">
+                  <div style="display:flex;justify-content:space-between;align-items:center">
+                    <div>
+                      <h3 style="margin:0;color:#001219">Estimated Annual Insurance Cost</h3>
+                      <p style="margin:6px 0 0;color:#022c43">Based on provided inputs</p>
+                    </div>
+                    <div style="text-align:right">
+                      <div style="font-size:36px;font-weight:800;color:#001219">${pred_rounded:,.2f}</div>
+                      <div style="font-size:12px;color:#023047">Estimated</div>
+                    </div>
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            # KPIs
+            baseline = 12000.0
+            diff = pred_rounded - baseline
+            pct = (diff / baseline) * 100
+            k1, k2, k3 = st.columns(3)
+            k1.metric("Estimate", f"${pred_rounded:,.0f}")
+            k2.metric("Baseline (avg)", f"${baseline:,.0f}")
+            k3.metric("Difference", f"${diff:,.0f}", delta=f"{pct:+.1f}%")
+            st.markdown("### Recommendation")
+            st.write("- For production accuracy, replace model.pkl with your trained model")
+            st.write("- Provide region / medical-history features for better predictions")
+
+        with right:
+            st.image("https://cdn-icons-png.flaticon.com/512/2965/2965567.png", width=120)
+            st.markdown("<small style='color:gray'>Tip: values are estimates only.</small>", unsafe_allow_html=True)
+
+    st.success(f"Final estimate: ${pred_rounded:,.2f}")
+
+# footer
+st.markdown("<hr>", unsafe_allow_html=True)
+st.markdown("<small style='color:gray'>App powered by your model — update model.pkl for best results.</small>", unsafe_allow_html=True)
