@@ -107,107 +107,51 @@ model = load_joblib("model.pkl")
 
 st.set_page_config(page_title="Medical Insurance Cost Prediction", page_icon=":medical:", layout="wide")
 
-# --- NEW: polished header ---
-st.markdown(
-    """
-    <div style="display:flex;align-items:center;gap:16px">
-      <div style="font-size:40px">🩺</div>
-      <div>
-        <h1 style="margin:0;padding:0">Medical Insurance Cost Predictor</h1>
-        <p style="margin:0;color:gray">Clean UI · Fast estimates · Replace with your trained model for production accuracy</p>
-      </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+st.title("Medical Insurance Cost Prediction")
+st.write("Enter the following details to estimate the insurance cost")
 
-# --- NEW: inputs moved to sidebar for a cleaner main canvas ---
-with st.sidebar:
-    st.header("Input parameters")
-    age = st.slider("Age", 0, 100, 30)
-    bmi = st.slider("BMI", 10.0, 60.0, 25.0, step=0.1)
-    bloodpressure = st.slider("Blood Pressure", 60, 200, 120)
-    children = st.slider("Number of Children", 0, 10, 0)
-    gender = st.selectbox("Gender", options=le_gender.classes_)
-    diabetic = st.selectbox("Diabetic", options=le_diabetic.classes_)
-    smoker = st.selectbox("Smoker", options=le_smoker.classes_)
+with st.form("insurance_cost_form"):
+    col1, col2 = st.columns(2)
+    with col1:
+        age = st.number_input("Age", min_value=0, max_value=100, value=30)
+        bmi = st.number_input("BMI", min_value=10.0, max_value=60.0, value=25.0)
+        children = st.number_input("Number of Children", min_value=0, max_value=10, value=0)
 
-    st.markdown("---")
-    predict_btn = st.button("Predict Insurance Cost", key="predict_btn")
+    with col2:
+        bloodpressure = st.number_input("Blood Pressure", min_value=60, max_value=200, value=120)
+        gender = st.selectbox("Gender", options=le_gender.classes_)
+        diabetic = st.selectbox("Diabetic", options=le_diabetic.classes_)
+        smoker = st.selectbox("Smoker", options=le_smoker.classes_)
 
-# --- NEW: attractive result panel ---
-result_container = st.container()
+    submitted = st.form_submit_button("Predict Payment")
 
-# show input summary & model info
-with st.expander("Input summary", expanded=False):
-    st.write({
-        "age": age,
-        "bmi": bmi,
-        "bloodpressure": bloodpressure,
-        "children": children,
-        "gender": gender,
-        "diabetic": diabetic,
-        "smoker": smoker
+if submitted:
+    input_data = pd.DataFrame({
+        "age": [age],
+        "gender": [gender],
+        "bmi": [bmi],
+        "bloodpressure": [bloodpressure],
+        "diabetic": [diabetic],
+        "children": [children],
+        "smoker": [smoker]
     })
 
-model_pipeline_note = "Detected pipeline" if (hasattr(model, "named_steps") or hasattr(model, "steps")) else "No pipeline detected"
+    # Transform categorical columns with loaded encoders
+    input_data["gender"] = le_gender.transform(input_data["gender"])
+    input_data["diabetic"] = le_diabetic.transform(input_data["diabetic"])
+    input_data["smoker"] = le_smoker.transform(input_data["smoker"])
 
-st.markdown(f"**Model:** {type(model).__name__} · {model_pipeline_note}")
+    num_cols = ["age", "bmi", "bloodpressure", "children"]
 
-# perform prediction when user clicks the button
-if predict_btn:
-    with st.spinner("Computing estimate..."):
-        input_data = pd.DataFrame({
-            "age": [age],
-            "gender": [gender],
-            "bmi": [bmi],
-            "bloodpressure": [bloodpressure],
-            "diabetic": [diabetic],
-            "children": [children],
-            "smoker": [smoker]
-        })
+    # If the loaded model is a sklearn Pipeline that already includes scaling,
+    # don't apply the separate scaler.
+    model_has_pipeline = hasattr(model, "named_steps") or hasattr(model, "steps")
+    if not model_has_pipeline:
+        input_data[num_cols] = scaler.transform(input_data[num_cols])
 
-        # encode categoricals
-        input_data["gender"] = le_gender.transform(input_data["gender"])
-        input_data["diabetic"] = le_diabetic.transform(input_data["diabetic"])
-        input_data["smoker"] = le_smoker.transform(input_data["smoker"])
+    prediction = float(model.predict(input_data)[0])
 
-        num_cols = ["age", "bmi", "bloodpressure", "children"]
-        model_has_pipeline = hasattr(model, "named_steps") or hasattr(model, "steps")
-        if not model_has_pipeline:
-            input_data[num_cols] = scaler.transform(input_data[num_cols])
-
-        # predict
-        pred = float(model.predict(input_data)[0])
-        # ensure sensible rounding and currency scale
-        pred_rounded = round(pred, 2)
-
-    # big visual card
-    with result_container:
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            st.markdown(
-                f"<div style='background:linear-gradient(90deg,#6ee7b7,#60a5fa);padding:18px;border-radius:12px'>"
-                f"<h2 style='margin:0;color:#023047'>Estimated Annual Insurance Cost</h2>"
-                f"<h1 style='margin:6px 0 0;font-size:44px;color:#001219'>${pred_rounded:,.2f}</h1>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-            # context metrics
-            avg_baseline = 12000.0
-            diff = pred_rounded - avg_baseline
-            pct = (diff / avg_baseline) * 100
-            st.write("")
-            st.metric("Compared to baseline (avg)", f"${avg_baseline:,.0f}", delta=f"${diff:,.0f} ({pct:+.1f}%)")
-
-        with col2:
-            st.info("How to improve accuracy")
-            st.write("- Replace fallback/model.pkl with your trained model")
-            st.write("- Ensure scaler/encoders match training pipeline")
-            st.write("- Use more features (diagnosis, region, prior claims)")
-
-        st.markdown("---")
-        st.success(f"Final estimate: ${pred_rounded:,.2f}")
+    st.success(f"Estimated Insurance Payment Amount: ${prediction:,.2f}")
 
 # helpful footer
 st.markdown("<small style='color:gray'>Tip: use realistic inputs for best estimates. This app shows estimates only.</small>", unsafe_allow_html=True)
